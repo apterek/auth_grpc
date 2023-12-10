@@ -94,6 +94,7 @@ func (a *Auth) Login(
 
 	token, err := jwt.NewToken(user, app, a.tokenTTL)
 	if err != nil {
+
 		a.log.Info("failed generate tokenn", sl.Err(err))
 		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
