@@ -2,6 +2,7 @@ package auth
 
 import (
 	"auth_grpc/internal/domain/models"
+	"auth_grpc/internal/lib/jwt"
 	"auth_grpc/internal/lib/logger/sl"
 	"auth_grpc/internal/storage"
 	"context"
@@ -35,6 +36,8 @@ type AppProvider interface {
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrInvalidAppId       = errors.New("invalid app id")
+	ErrUserExist          = errors.New("user already exist")
 )
 
 // New returns a new instance of the Auth service
@@ -89,6 +92,12 @@ func (a *Auth) Login(
 	}
 	log.Info("user logged in successfully")
 
+	token, err := jwt.NewToken(user, app, a.tokenTTL)
+	if err != nil {
+		a.log.Info("failed generate tokenn", sl.Err(err))
+		return "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
+	}
+	return token, nil
 }
 
 func (a *Auth) RegisterNewUser(
@@ -110,6 +119,10 @@ func (a *Auth) RegisterNewUser(
 
 	id, err := a.usrSaver.SaveUser(ctx, email, passHash)
 	if err != nil {
+		if errors.Is(err, storage.ErrUserExists) {
+			log.Warn("user already exist", sl.Err(err))
+			return 0, fmt.Errorf("%s: %w", op, ErrUserExist)
+		}
 		log.Error("failed to save user", sl.Err(err))
 		return 0, fmt.Errorf("%s: %w", op, err)
 	}
@@ -121,5 +134,23 @@ func (a *Auth) IsAdmin(
 	ctx context.Context,
 	userID int64,
 ) (bool, error) {
-	panic("not implemented")
+	const op = "Auth.IsAdmin"
+	log := a.log.With(
+		slog.String("op", op),
+		slog.Int64("user_id", userID),
+	)
+	log.Info("checking if user is admin")
+
+	isAdmin, err := a.usrProvider.IsAdmin(ctx, userID)
+	if err != nil {
+		if errors.Is(err, storage.ErrAppNotFound) {
+			log.Warn("user not found", sl.Err(err))
+			return false, fmt.Errorf("%s: %w", op, ErrInvalidAppId)
+		}
+		return false, fmt.Errorf("%s: %w", op, err)
+	}
+	log.Info("checked if user is admin", slog.Bool("is_admin", isAdmin))
+
+	return isAdmin, nil
+
 }
